@@ -10,7 +10,6 @@ from image_to_latex.models import ResNetTransformer
 from image_to_latex.lit_models.metrics import CharacterErrorRate
 from image_to_latex.lit_models import LitResNetTransformer
 
-# from img2latex.data import *
 
 
 class DistillModel(LightningModule):
@@ -69,6 +68,7 @@ class DistillModel(LightningModule):
 
         self.loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_index)
         self.loss_emb = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
+        self.loss_cos = torch.nn.CosineEmbeddingLoss(margin=0.05, reduction='mean')
         self.val_cer = CharacterErrorRate(self.tokenizer.ignore_indices)
         self.test_cer = CharacterErrorRate(self.tokenizer.ignore_indices)
 
@@ -112,21 +112,27 @@ class DistillModel(LightningModule):
         teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
         
         # Loss with teacher embeding        
-        loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
-        
+        # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
+        # y = 2*torch.empty(batch.shape[0]).random_(2) - 1
+        y = torch.ones(imgs.shape[0]).cuda()
+        loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+
+
         # loss with target
         loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
 
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        # loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        loss_logits_teacher = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
 
         # mean every batch
-        loss_embedding = loss_embedding.mean()
-        loss_logits_teacher = loss_logits_teacher.mean()
+        # loss_embedding = loss_embedding.mean()
+        # loss_logits_teacher = loss_logits_teacher.mean()
         
-        loss = loss_target - loss_embedding - loss_logits_teacher
+        # loss = loss_target - loss_embedding - loss_logits_teacher
+        loss = loss_target + loss_embedding + loss_logits_teacher
         
         # log loss
         self.log("train/loss_target", loss_target)
@@ -167,22 +173,25 @@ class DistillModel(LightningModule):
         teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
         
         # Loss with teacher embeding        
-        loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
-
+        # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
+        y = torch.ones(imgs.shape[0]).cuda()
+        loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+        
         # loss with target
         loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
 
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-
-        loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        # loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        loss_logits_teacher = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
 
         # mean every batch
-        loss_embedding = loss_embedding.mean()
-        loss_logits_teacher = loss_logits_teacher.mean()
+        # loss_embedding = loss_embedding.mean()
+        # loss_logits_teacher = loss_logits_teacher.mean()
 
-        loss = loss_target - loss_embedding - loss_logits_teacher
+        # loss = loss_target - loss_embedding - loss_logits_teacher
+        loss = loss_target + loss_embedding + loss_logits_teacher
 
         # log loss
         self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
