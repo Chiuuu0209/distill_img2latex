@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 
 from image_to_latex.data.utils import Tokenizer
@@ -26,6 +27,9 @@ class DistillModel(LightningModule):
         milestones: List[int] = [5],
         gamma: float = 0.1,
         pretrained_weight = Path(__file__).resolve().parents[1] / "weights" / "model.ckpt",
+        loss : str = "soft",
+        embedding : bool = False,
+        temperature : float = 1.0,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -65,10 +69,37 @@ class DistillModel(LightningModule):
 
         # print("type student : ", type(self.model), "teahcer : ", type(self.teacher_model),type(self.model)==type(self.teacher_model))
         # self.model = None
+        
+        # loss params
+        """
+        loss : str = "soft" or "hard"
+            soft : soft target loss 
+                    -> loss_ce(softmax(logits), targets) + 
+                    -> loss_kl(softmax(logits/temperature), softmax(teacher_logits/temperature))
+            hard : hard target loss
+                    -> loss_ce(softmax(logits), targets) +
+                    -> loss_ce(softmax(logits), softmax(teacher_logits))
 
-        self.loss_fn = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_index)
-        self.loss_emb = torch.nn.CosineSimilarity(dim=1, eps=1e-08)
-        self.loss_cos = torch.nn.CosineEmbeddingLoss(margin=0.05, reduction='mean')
+        embedding : bool  -> if True, caluate add loss with embedding layer
+                    -> loss_cos(student_embedding, teacher_embedding)
+
+        temperature : float -> temperature for soft target loss to get smooth distribution
+        """
+        assert loss in ["soft","hard"] , "loss must be soft or hard"
+        self.loss = loss
+        self.embedding = embedding
+        self.temperature = temperature
+        self.apha = 0.1
+        self.delta = 0.1
+        self._lambda = 0.1
+
+        self.loss_ce = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_index)
+        self.loss_emb = nn.CosineSimilarity(dim=1, eps=1e-08)
+        self.loss_cos = nn.CosineEmbeddingLoss(margin=0.05, reduction='mean')
+        self.loss_kl = nn.KLDivLoss(reduction='batchmean')
+        
+        
+        # criterion 
         self.val_cer = CharacterErrorRate(self.tokenizer.ignore_indices)
         self.test_cer = CharacterErrorRate(self.tokenizer.ignore_indices)
 
@@ -90,7 +121,7 @@ class DistillModel(LightningModule):
         """
         imgs, targets = batch
         logits = self.model(imgs, targets[:, :-1])
-        loss = self.loss_fn(logits, targets[:, 1:])
+        loss = self.loss_ce(logits, targets[:, 1:])
         """
         imgs, targets = batch
 
@@ -104,40 +135,60 @@ class DistillModel(LightningModule):
             teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
             teacher_logits = self.teacher_model.decode(targets[:, :-1],teacher_embedding_x) # (Sy, B, num_classes)
             teacher_logits = teacher_logits.permute(1, 2, 0) # (B, num_classes, Sy)
-
-        # transform embeding to proper shape
-        embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
-        embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
-        teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
-        teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
         
-        # Loss with teacher embeding        
-        # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
-        # y = 2*torch.empty(batch.shape[0]).random_(2) - 1
-        y = torch.ones(imgs.shape[0]).cuda()
-        loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
-
-
         # loss with target
-        loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        """
+        y: (B, Sy) with elements in (0, num_classes - 1)
+        logits: (B, num_classes, Sy)
+        """
+        loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        self.log("train/loss_target", loss_target)
 
+        """
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        # loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
-        loss_logits_teacher = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
+        # loss_soft = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        loss_soft = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
+        """
 
+        if self.loss == "soft":
+            loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
+            self.log("train/loss_soft", loss_soft)
+            loss = loss_target + loss_soft
+        elif self.loss == "hard":
+            logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
+            teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
+            loss_hard = self.loss_ce(logits, teacher_logits)
+            self.log("train/loss_hard", loss_hard)
+            loss = loss_target + loss_hard
+        # loss with teacher logits
+        # print("logits : ", logits.shape, "teacher_logits : ", teacher_logits.shape)
+        # print("loss_soft : ", loss_soft)
         # mean every batch
         # loss_embedding = loss_embedding.mean()
-        # loss_logits_teacher = loss_logits_teacher.mean()
+        # loss_soft = loss_soft.mean()
         
-        # loss = loss_target - loss_embedding - loss_logits_teacher
-        loss = loss_target + loss_embedding + loss_logits_teacher
+        # loss = loss_target + loss_embedding + loss_soft
+        # loss = loss_target + self.apha * loss_embedding + self.delta * loss_soft
         
+        if self.embedding:
+            # transform embeding to proper shape
+            embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
+            embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
+            teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
+            teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
+            
+            # Loss with teacher embeding        
+            # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
+            # y = 2*torch.empty(batch.shape[0]).random_(2) - 1
+            y = torch.ones(imgs.shape[0]).cuda()
+            loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+            self.log("train/loss_embedding", loss_embedding)
+            loss = loss + loss_embedding
+        
+
         # log loss
-        self.log("train/loss_target", loss_target)
-        self.log("train/loss_logits_teacher", loss_logits_teacher)
-        self.log("train/loss_embedding", loss_embedding)
         self.log("train/loss", loss)
         return loss
 
@@ -145,7 +196,7 @@ class DistillModel(LightningModule):
         """
         imgs, targets = batch
         logits = self.model(imgs, targets[:, :-1])
-        loss = self.loss_fn(logits, targets[:, 1:])
+        loss = self.loss_ce(logits, targets[:, 1:])
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         preds = self.model.predict(imgs)
@@ -166,37 +217,59 @@ class DistillModel(LightningModule):
             teacher_logits = self.teacher_model.decode(targets[:, :-1],teacher_embedding_x) # (Sy, B, num_classes)
             teacher_logits = teacher_logits.permute(1, 2, 0) # (B, num_classes, Sy)
         
-        # transform embeding to proper shape
-        embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
-        embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
-        teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
-        teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
-        
-        # Loss with teacher embeding        
-        # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
-        y = torch.ones(imgs.shape[0]).cuda()
-        loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
-        
         # loss with target
-        loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
 
+        """
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        # loss_logits_teacher = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
-        loss_logits_teacher = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
+        # loss_soft = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
+        loss_soft = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
+        """
+        if self.loss == "soft":
+            loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
+            self.log("val/loss_soft", loss_soft)
+            loss = loss_target + loss_soft
+        elif self.loss == "hard":
+            logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
+            teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
+            loss_hard = self.loss_ce(logits, teacher_logits)
+            self.log("val/loss_hard", loss_hard)
+            loss = loss_target + loss_hard
+        # loss with teacher logits
+        
+        # logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
+        # teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
+        # print("logits : ",logits)
+        # print("teacher_logits : ",teacher_logits)
+        # loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
+        # print("loss_soft : ",loss_soft)
+        
 
         # mean every batch
         # loss_embedding = loss_embedding.mean()
-        # loss_logits_teacher = loss_logits_teacher.mean()
+        # loss_soft = loss_soft.mean()
 
-        # loss = loss_target - loss_embedding - loss_logits_teacher
-        loss = loss_target + loss_embedding + loss_logits_teacher
+        # loss = loss_target + loss_embedding + loss_soft
+        # loss = loss_target + self.apha * loss_embedding + self.delta * loss_soft
 
         # log loss
-        self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/loss_logits_teacher", loss_logits_teacher, on_step=False, on_epoch=True, prog_bar=True)
-        self.log("val/loss_embedding", loss_embedding, on_step=False, on_epoch=True, prog_bar=True)
+        if self.embedding:
+            # transform embeding to proper shape
+            embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
+            embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
+            teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
+            teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
+        
+            # Loss with teacher embeding        
+            # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
+            y = torch.ones(imgs.shape[0]).cuda()
+            loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+            self.log("val/loss_embedding", loss_embedding, on_step=False, on_epoch=True, prog_bar=True)
+            loss = loss + loss_embedding
+        
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # predict the target
