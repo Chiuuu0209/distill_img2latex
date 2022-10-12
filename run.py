@@ -15,7 +15,7 @@ from model.DistillModel import DistillModel
 import os
 # os.environ["HYDRA_FULL_ERROR"] = "1"
 
-@hydra.main(config_path="./conf", config_name="config")
+@hydra.main(config_path="./conf", config_name="config_original")
 def main(cfg: DictConfig):
     datamodule = Im2Latex(**cfg.data)
     datamodule.setup()

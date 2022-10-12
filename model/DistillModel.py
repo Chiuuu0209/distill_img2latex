@@ -58,10 +58,10 @@ class DistillModel(LightningModule):
         TODO: freeze pretrained model
         """
         
-        teacher_model = LitResNetTransformer.load_from_checkpoint(self.pretrained_weight)
-        for (name,para) in teacher_model.named_parameters():
-            para.requires_grad = False
-        self.teacher_model = teacher_model.model
+        # teacher_model = LitResNetTransformer.load_from_checkpoint(self.pretrained_weight)
+        # for (name,para) in teacher_model.named_parameters():
+        #     para.requires_grad = False
+        # self.teacher_model = teacher_model.model
 
         # print("type student : ", type(self.model), "teahcer : ", type(self.teacher_model),type(self.model)==type(self.teacher_model))
         # self.model = None
@@ -87,9 +87,10 @@ class DistillModel(LightningModule):
         output = self.decode(y, encoded_x)  # (Sy, B, num_classes)
         output = output.permute(1, 2, 0)  # (B, num_classes, Sy)
         """
-        """
         imgs, targets = batch
-        logits = self.model(imgs, targets[:, :-1])
+                            # x     y
+        # logits = self.model(imgs, targets[:, :-1])
+        logits = self.model.forward(imgs, targets[:, :-1])
         loss = self.loss_fn(logits, targets[:, 1:])
         """
         imgs, targets = batch
@@ -98,7 +99,8 @@ class DistillModel(LightningModule):
         embedding_x = self.model.encode(imgs) # (Sx, B, E)
         logits = self.model.decode(targets[:, :-1],embedding_x) # (Sy, B, num_classes)
         logits = logits.permute(1, 2, 0)  # (B, num_classes, Sy)
-
+        """
+        """
         # freeze pretrined model
         with torch.no_grad():
             teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
@@ -116,11 +118,13 @@ class DistillModel(LightningModule):
         # y = 2*torch.empty(batch.shape[0]).random_(2) - 1
         y = torch.ones(imgs.shape[0]).cuda()
         loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+        """
 
 
+        """
         # loss with target
         loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
-
+        
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
@@ -138,13 +142,15 @@ class DistillModel(LightningModule):
         self.log("train/loss_target", loss_target)
         self.log("train/loss_logits_teacher", loss_logits_teacher)
         self.log("train/loss_embedding", loss_embedding)
+        """
+        # loss = loss_target
         self.log("train/loss", loss)
         return loss
 
     def validation_step(self, batch, batch_idx):
-        """
         imgs, targets = batch
-        logits = self.model(imgs, targets[:, :-1])
+        # logits = self.model(imgs, targets[:, :-1])
+        logits = self.model.forward(imgs, targets[:, :-1])
         loss = self.loss_fn(logits, targets[:, 1:])
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
@@ -159,7 +165,9 @@ class DistillModel(LightningModule):
         embedding_x = self.model.encode(imgs) # (Sx, B, E)
         logits = self.model.decode(targets[:, :-1],embedding_x) # (Sy, B, num_classes)
         logits = logits.permute(1, 2, 0)  # (B, num_classes, Sy)
+        """
 
+        """
         # teacher output
         with torch.no_grad():
             teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
@@ -176,10 +184,12 @@ class DistillModel(LightningModule):
         # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
         y = torch.ones(imgs.shape[0]).cuda()
         loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
+        """
         
         # loss with target
-        loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        # loss_target = self.loss_fn(logits, targets[:, 1:]) # (B, num_classes, Sy)
 
+        """
         # loss with teacher logits
         logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
         teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
@@ -197,12 +207,15 @@ class DistillModel(LightningModule):
         self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/loss_logits_teacher", loss_logits_teacher, on_step=False, on_epoch=True, prog_bar=True)
         self.log("val/loss_embedding", loss_embedding, on_step=False, on_epoch=True, prog_bar=True)
+        
+        loss = loss_target
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # predict the target
         preds = self.model.predict(imgs)
         val_cer = self.val_cer(preds, targets)
         self.log("val/cer", val_cer)
+        """
 
 
     def test_step(self, batch, batch_idx):
