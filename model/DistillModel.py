@@ -30,6 +30,10 @@ class DistillModel(LightningModule):
         loss : str = "soft",
         embedding : bool = False,
         temperature : float = 1.0,
+        r_target : float = 0.999,
+        r_soft : float = 0.001,
+        r_hard : float = 0.001,
+        r_embedding : float = 0.001,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -58,8 +62,8 @@ class DistillModel(LightningModule):
         )
 
         """
-        for load distill model
-        TODO: freeze pretrained model
+        load model we want to distill
+            -> freeze pretrained model
         """
         
         teacher_model = LitResNetTransformer.load_from_checkpoint(self.pretrained_weight)
@@ -67,8 +71,6 @@ class DistillModel(LightningModule):
             para.requires_grad = False
         self.teacher_model = teacher_model.model
 
-        # print("type student : ", type(self.model), "teahcer : ", type(self.teacher_model),type(self.model)==type(self.teacher_model))
-        # self.model = None
         
         # loss params
         """
@@ -89,10 +91,12 @@ class DistillModel(LightningModule):
         self.loss = loss
         self.embedding = embedding
         self.temperature = temperature
-        self.apha = 0.1
-        self.delta = 0.1
-        self._lambda = 0.1
+        self.r_target = r_target
+        self.r_soft = r_soft
+        self.r_hard = r_hard
+        self.r_embedding = r_embedding
 
+        # loss function
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_index)
         self.loss_emb = nn.CosineSimilarity(dim=1, eps=1e-08)
         self.loss_cos = nn.CosineEmbeddingLoss(margin=0.05, reduction='mean')
@@ -155,13 +159,15 @@ class DistillModel(LightningModule):
         if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("train/loss_soft", loss_soft)
-            loss = loss_target + loss_soft
+            # loss = loss_target + loss_soft
+            loss = self.r_target * loss_target + self.r_soft * loss_soft
         elif self.loss == "hard":
             logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
             teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
             loss_hard = self.loss_ce(logits, teacher_logits)
             self.log("train/loss_hard", loss_hard)
-            loss = loss_target + loss_hard
+            # loss = loss_target + loss_hard
+            loss = self.r_target * loss_target + self.r_hard * loss_hard
         # loss with teacher logits
         # print("logits : ", logits.shape, "teacher_logits : ", teacher_logits.shape)
         # print("loss_soft : ", loss_soft)
@@ -185,7 +191,8 @@ class DistillModel(LightningModule):
             y = torch.ones(imgs.shape[0]).cuda()
             loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
             self.log("train/loss_embedding", loss_embedding)
-            loss = loss + loss_embedding
+            # loss = loss + loss_embedding
+            loss = loss + self.r_embedding * loss_embedding
         
 
         # log loss
@@ -231,13 +238,15 @@ class DistillModel(LightningModule):
         if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("val/loss_soft", loss_soft)
-            loss = loss_target + loss_soft
+            # loss = loss_target + loss_soft
+            loss = self.r_target * loss_target + self.r_soft * loss_soft
         elif self.loss == "hard":
             logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
             teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
             loss_hard = self.loss_ce(logits, teacher_logits)
             self.log("val/loss_hard", loss_hard)
-            loss = loss_target + loss_hard
+            # loss = loss_target + loss_hard
+            loss = self.r_target * loss_target + self.r_hard * loss_hard
         # loss with teacher logits
         
         # logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
@@ -268,7 +277,10 @@ class DistillModel(LightningModule):
             y = torch.ones(imgs.shape[0]).cuda()
             loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
             self.log("val/loss_embedding", loss_embedding, on_step=False, on_epoch=True, prog_bar=True)
-            loss = loss + loss_embedding
+            # loss = loss + loss_embedding
+            loss = loss + self.r_embedding * loss_embedding
+
+
         
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
