@@ -14,6 +14,7 @@ from model import Im2Latex
 from model.DistillModel import DistillModel
 import os
 # os.environ["HYDRA_FULL_ERROR"] = "1"
+CUDA_LAUNCH_BLOCKING=1
 
 @hydra.main(config_path="./conf", config_name="config")
 def main(cfg: DictConfig):

@@ -42,12 +42,9 @@ class DistillModel(LightningModule):
         self.milestones = milestones
         self.gamma = gamma
 
-        # vocab_file = Path(__file__).resolve().parents[0] / "image-to-latex" / "data" / "vocab.json"
         vocab_file = Path(__file__).resolve().parents[0] / "img2latex" / "data" / "vocab.json"
-        # print(vocab_file)
         self.tokenizer = Tokenizer.load(vocab_file)
         self.pretrained_weight = pretrained_weight
-        # self.pretrained_weight = Path(__file__).resolve().parents[1] / "weights" / "model.ckpt"
         self.model = ResNetTransformer(
             d_model=d_model,
             dim_feedforward=dim_feedforward,
@@ -148,14 +145,6 @@ class DistillModel(LightningModule):
         loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
         self.log("train/loss_target", loss_target)
 
-        """
-        # loss with teacher logits
-        logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
-        teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        # loss_soft = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
-        loss_soft = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
-        """
-
         if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("train/loss_soft", loss_soft)
@@ -168,15 +157,8 @@ class DistillModel(LightningModule):
             self.log("train/loss_hard", loss_hard)
             # loss = loss_target + loss_hard
             loss = self.r_target * loss_target + self.r_hard * loss_hard
-        # loss with teacher logits
-        # print("logits : ", logits.shape, "teacher_logits : ", teacher_logits.shape)
-        # print("loss_soft : ", loss_soft)
-        # mean every batch
-        # loss_embedding = loss_embedding.mean()
-        # loss_soft = loss_soft.mean()
-        
-        # loss = loss_target + loss_embedding + loss_soft
-        # loss = loss_target + self.apha * loss_embedding + self.delta * loss_soft
+        else:
+            raise NotImplementedError
         
         if self.embedding:
             # transform embeding to proper shape
@@ -185,9 +167,7 @@ class DistillModel(LightningModule):
             teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
             teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
             
-            # Loss with teacher embeding        
-            # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
-            # y = 2*torch.empty(batch.shape[0]).random_(2) - 1
+
             y = torch.ones(imgs.shape[0]).cuda()
             loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
             self.log("train/loss_embedding", loss_embedding)
@@ -228,13 +208,6 @@ class DistillModel(LightningModule):
         loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
         self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
 
-        """
-        # loss with teacher logits
-        logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
-        teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        # loss_soft = self.loss_emb(logits, teacher_logits)# (B, num_classes*Sy)
-        loss_soft = self.loss_cos(logits.cuda(), teacher_logits.cuda(), y)
-        """
         if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("val/loss_soft", loss_soft)
@@ -247,22 +220,8 @@ class DistillModel(LightningModule):
             self.log("val/loss_hard", loss_hard)
             # loss = loss_target + loss_hard
             loss = self.r_target * loss_target + self.r_hard * loss_hard
-        # loss with teacher logits
-        
-        # logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
-        # teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
-        # print("logits : ",logits)
-        # print("teacher_logits : ",teacher_logits)
-        # loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
-        # print("loss_soft : ",loss_soft)
-        
-
-        # mean every batch
-        # loss_embedding = loss_embedding.mean()
-        # loss_soft = loss_soft.mean()
-
-        # loss = loss_target + loss_embedding + loss_soft
-        # loss = loss_target + self.apha * loss_embedding + self.delta * loss_soft
+        else:
+            raise NotImplementedError
 
         # log loss
         if self.embedding:
@@ -273,7 +232,6 @@ class DistillModel(LightningModule):
             teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
         
             # Loss with teacher embeding        
-            # loss_embedding = self.loss_emb(embedding_x, teacher_embedding_x)# (B, Sx*E)
             y = torch.ones(imgs.shape[0]).cuda()
             loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
             self.log("val/loss_embedding", loss_embedding, on_step=False, on_epoch=True, prog_bar=True)
@@ -281,7 +239,6 @@ class DistillModel(LightningModule):
             loss = loss + self.r_embedding * loss_embedding
 
 
-        
         self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
         # predict the target
