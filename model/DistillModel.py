@@ -84,7 +84,7 @@ class DistillModel(LightningModule):
 
         temperature : float -> temperature for soft target loss to get smooth distribution
         """
-        assert loss in ["origin","soft","hard"] , "loss must be soft or hard"
+        assert loss in ["soft","hard"] , "loss must be soft or hard"
         self.loss = loss
         self.embedding = embedding
         self.temperature = temperature
@@ -95,7 +95,6 @@ class DistillModel(LightningModule):
 
         # loss function
         self.loss_ce = nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_index)
-        # self.loss_emb = nn.CosineSimilarity(dim=1, eps=1e-08)
         self.loss_cos = nn.CosineEmbeddingLoss(margin=0.05, reduction='mean')
         self.loss_kl = nn.KLDivLoss(reduction='batchmean')
         
@@ -144,9 +143,8 @@ class DistillModel(LightningModule):
         """
         loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
         self.log("train/loss_target", loss_target)
-        if self.loss == "origin":
-            loss = loss_target
-        elif self.loss == "soft":
+        
+        if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("train/loss_soft", loss_soft)
             # loss = loss_target + loss_soft
@@ -208,9 +206,8 @@ class DistillModel(LightningModule):
         # loss with target
         loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
         self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
-        if self.loss == "origin":
-            loss = loss_target
-        elif self.loss == "soft":
+        
+        if self.loss == "soft":
             loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
             self.log("val/loss_soft", loss_soft)
             # loss = loss_target + loss_soft
@@ -261,6 +258,10 @@ class DistillModel(LightningModule):
         preds = self.model.predict(imgs)
         test_cer = self.test_cer(preds, targets)
         self.log("test/cer", test_cer)
+
+        teacher_preds = self.model.predict(imgs)
+        teacher_test_cer = self.test_cer(teacher_preds, targets)
+        self.log("test/teacher_cer", teacher_test_cer)
 
         return preds
 

@@ -7,9 +7,6 @@ from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import Callback, EarlyStopping, ModelCheckpoint
 from pytorch_lightning.loggers.wandb import WandbLogger
 
-# from image_to_latex.data import Im2Latex
-# from image_to_latex.lit_models import LitResNetTransformer
-
 from model import Im2Latex
 from model.DistillModel import DistillModel
 import os
@@ -21,9 +18,7 @@ def main(cfg: DictConfig):
     datamodule = Im2Latex(**cfg.data)
     datamodule.setup()
 
-    # lit_model = LitResNetTransformer(**cfg.lit_model)
     lit_model = DistillModel(**cfg.lit_model)
-    # lit_model = DistillModel.load_from_checkpoint("/home/chris/git/Distill/outputs/2022-09-22/17-02-15/wandb/latest-run/files/Distill-im2latex/kp4xwxk7/checkpoints/epoch=13-val/loss=-1.54-val/cer=0.17.ckpt")
 
     callbacks: List[Callback] = []
     if cfg.callbacks.model_checkpoint:
