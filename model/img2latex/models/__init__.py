@@ -1,2 +1,3 @@
 from .positional_encoding import PositionalEncoding1D, PositionalEncoding2D
-from .resnet_transformer import ResNetTransformer
+from .resnet_transformer import ResNetTransformer 
+from .resnet_transformer_light import ResNetTransformerLight
