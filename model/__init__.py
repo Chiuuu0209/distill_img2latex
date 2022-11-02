@@ -1,2 +1,2 @@
-from image_to_latex.lit_models import LitResNetTransformer
-from image_to_latex.data import Im2Latex
+from .img2latex.lit_models import LitResNetTransformer
+from .img2latex.data import Im2Latex
