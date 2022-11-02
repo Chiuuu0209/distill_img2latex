@@ -6,10 +6,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from pytorch_lightning import LightningModule
 
-# from image_to_latex.data.utils import Tokenizer
-# from image_to_latex.models import ResNetTransformer
-# from image_to_latex.lit_models.metrics import CharacterErrorRate
-# from image_to_latex.lit_models import LitResNetTransformer
 
 from .img2latex.data.utils import Tokenizer
 from .img2latex.models import ResNetTransformer , ResNetTransformerLight
@@ -139,6 +135,9 @@ class DistillModel(LightningModule):
         logits = self.model.decode(targets[:, :-1],embedding_x) # (Sy, B, num_classes)
         logits = logits.permute(1, 2, 0)  # (B, num_classes, Sy)
 
+        loss = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        self.log("train/loss_target", loss)
+
         if self.teacher:    
             # freeze pretrined model
             with torch.no_grad():
@@ -150,19 +149,20 @@ class DistillModel(LightningModule):
             y: (B, Sy) with elements in (0, num_classes - 1)
             logits: (B, num_classes, Sy)
             """
-            loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            self.log("train/loss_target", loss_target)
+            # loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+            # self.log("train/loss_target", loss_target)
             
             if self.loss == "soft":
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
                 self.log("train/loss_soft", loss_soft)
-                loss = self.r_target * loss_target + self.r_soft * loss_soft
+                loss = self.r_target * loss + self.r_soft * loss_soft
             elif self.loss == "hard":
+                # TD-DO : some bug
                 logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
                 teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
                 loss_hard = self.loss_ce(logits, teacher_logits)
                 self.log("train/loss_hard", loss_hard)
-                loss = self.r_target * loss_target + self.r_hard * loss_hard
+                loss = self.r_target * loss + self.r_hard * loss_hard
             else:
                 raise NotImplementedError
             
@@ -172,7 +172,7 @@ class DistillModel(LightningModule):
                 embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
                 teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
                 teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
-                print(embedding_x.shape, teacher_embedding_x.shape)
+                # print(embedding_x.shape, teacher_embedding_x.shape)
                 assert embedding_x.shape == teacher_embedding_x.shape , "embedding_x and teacher_embedding_x must have same shape but got {} and {}".format(embedding_x.shape, teacher_embedding_x.shape)
 
                 y = torch.ones(imgs.shape[0]).cuda()
@@ -180,19 +180,10 @@ class DistillModel(LightningModule):
                 self.log("train/loss_embedding", loss_embedding)
                 loss = loss + self.r_embedding * loss_embedding
             
-
             # log loss
-            self.log("train/loss", loss)
-            return loss
+        self.log("train/loss", loss)
+        return loss
         
-        else:
-            loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            self.log("train/loss_target", loss_target)
-            
-            # log loss
-            loss = loss_target
-            self.log("train/loss", loss)
-            return loss
         
 
     def validation_step(self, batch, batch_idx):
@@ -214,27 +205,31 @@ class DistillModel(LightningModule):
         logits = self.model.decode(targets[:, :-1],embedding_x) # (Sy, B, num_classes)
         logits = logits.permute(1, 2, 0)  # (B, num_classes, Sy)
 
+        # loss with target
+        loss = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+        self.log("val/loss_target", loss, on_step=False, on_epoch=True, prog_bar=True)
+
         if self.teacher:
             # teacher output
             with torch.no_grad():
                 teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
                 teacher_logits = self.teacher_model.decode(targets[:, :-1],teacher_embedding_x) # (Sy, B, num_classes)
                 teacher_logits = teacher_logits.permute(1, 2, 0) # (B, num_classes, Sy)
-            # loss with target
-            loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
+            # # loss with target
+            # loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
+            # self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
             
             if self.loss == "soft":
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
                 self.log("val/loss_soft", loss_soft)
                 # loss = loss_target + loss_soft
-                loss = self.r_target * loss_target + self.r_soft * loss_soft
+                loss = self.r_target * loss + self.r_soft * loss_soft
             elif self.loss == "hard":
                 logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
                 teacher_logits = teacher_logits.reshape(teacher_logits.shape[0],-1) # (B, num_classes*Sy)
                 loss_hard = self.loss_ce(logits, teacher_logits)
                 self.log("val/loss_hard", loss_hard)
-                loss = self.r_target * loss_target + self.r_hard * loss_hard
+                loss = self.r_target * loss + self.r_hard * loss_hard
             else:
                 raise NotImplementedError
 
@@ -253,22 +248,12 @@ class DistillModel(LightningModule):
                 loss = loss + self.r_embedding * loss_embedding
 
 
-            self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
 
-            # predict the target
-            preds = self.model.predict(imgs)
-            val_cer = self.val_cer(preds, targets)
-            self.log("val/cer", val_cer)
-        else:
-            # loss with target
-            loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
-            self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-
-            # predict the target
-            preds = self.model.predict(imgs)
-            val_cer = self.val_cer(preds, targets)
-            self.log("val/cer", val_cer)
+        # predict the target
+        preds = self.model.predict(imgs)
+        val_cer = self.val_cer(preds, targets)
+        self.log("val/cer", val_cer)
 
 
 
@@ -285,9 +270,10 @@ class DistillModel(LightningModule):
         test_cer = self.test_cer(preds, targets)
         self.log("test/cer", test_cer)
 
-        teacher_preds = self.teacher_model.predict(imgs)
-        teacher_test_cer = self.test_cer(teacher_preds, targets)
-        self.log("test/teacher_cer", teacher_test_cer)
+        if self.teacher:
+            teacher_preds = self.teacher_model.predict(imgs)
+            teacher_test_cer = self.test_cer(teacher_preds, targets)
+            self.log("test/teacher_cer", teacher_test_cer)
 
         return preds
 
