@@ -6,8 +6,6 @@ import torch.nn as nn
 import torchvision.models
 from torch import Tensor
 
-# from .positional_encoding import PositionalEncoding1D, PositionalEncoding2D
-# from image_to_latex.models.positional_encoding import PositionalEncoding1D, PositionalEncoding2D
 from .img2latex.models.positional_encoding import PositionalEncoding1D, PositionalEncoding2D
 
 class Cnn(nn.Module):
@@ -122,7 +120,7 @@ class Cnn(nn.Module):
             x: (B, C, _H, _W)
 
         Returns:
-            embeding_x : (Sx, B, E); Sx = H * W
+            embeding_x : (B, E, 500)
             output: (B, num_classes, 500)
         """
         # Resnet expects 3 channels but training images are in gray scale
@@ -132,11 +130,12 @@ class Cnn(nn.Module):
         x = self.backbone(x)  # (B, RESNET_DIM, H, W); H = _H // 32, W = _W // 32
         x = self.bottleneck(x)  # (B, E, H, W)
         x = self.image_positional_encoder(x)  # (B, E, H, W)
-        x = x.flatten(start_dim=2)  # (B, E, H * W)
-        embeding_x = x.permute(2,0,1) # (Sx, B, E); Sx = H * W
+        x = x.flatten(start_dim=2)  # (B, E, Sx); Sx = H * W
+        # embeding_x = x.permute(2,0,1) # (Sx, B, E); Sx = H * W
 
         # decoder
-        x = self.to500(x)
+        x = self.to500(x) # (B, E, 500)
+        embeding_x = x.clone() # (B, E, 500)
         x = x.permute(0, 2, 1) # (B,  500, E)
         x = self.toclass(x) # (B, H * W, num of class)
         x = self.softmax(x) # (B, H * W, num of class)
@@ -179,7 +178,7 @@ class Cnn(nn.Module):
         x = self.bottleneck(x)  # (B, E, H, W)
         x = self.image_positional_encoder(x)  # (B, E, H, W)
         x = x.flatten(start_dim=2)  # (B, E, H * W)
-        x = self.to500(x)
+        x = self.to500(x)# (B,  E, 500)
         x = x.permute(0, 2, 1) # (B,  500, E)
         x = self.toclass(x) # (B, H * W, num of class)
         x = self.softmax(x)

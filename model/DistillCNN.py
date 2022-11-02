@@ -117,12 +117,12 @@ class LitCnn(LightningModule):
         return loss
         """
         imgs, targets = batch
-        embedding_x , logits = self.model.cnn_forward(imgs) # (500 ,B ,E) , (B, num_classes, 500)
+        embedding_x , logits = self.model.cnn_forward(imgs) # (B, E, 500) , (B, num_classes, 500)
         targets = F.pad(targets, pad=(0, 500 - targets.shape[1], 0, 0))
         loss = self.loss_fn(logits, targets)
         self.log("train/loss_target", loss)
 
-        if self.teacher:    
+        if self.teacher:
             # freeze pretrined model
             with torch.no_grad():
                 teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
@@ -131,29 +131,25 @@ class LitCnn(LightningModule):
 
             if self.loss == "soft":
                 # soft target loss
-                # print("student logits shape : ", logits.shape)
-                # print("teacher logits shape : ", teacher_logits.shape)
                 Sy = teacher_logits.shape[2]
-                # print("Sy : ", Sy)
-                # print("student logits shape : ", logits[:,:,:Sy].shape)
-                # print("teacher logits shape : ", teacher_logits.shape)
-                # assert logits[:,:,:Sy].shape == teacher_logits.shape , "logits shape must be same"
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,:,:Sy]/self.temperature, dim=-1), F.softmax(teacher_logits/self.temperature, dim=-1))
                 loss = loss * self.r_target + self.r_soft * loss_soft
                 self.log("train/loss_soft", loss_soft)
 
             if self.embedding:
                 # embedding loss
-                embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
-                embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
-                teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
-                teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
-                # print(embedding_x.shape, teacher_embedding_x.shape)
+                """
+                embedding_x : (B, E, 500)
+                teacher_embedding_x : (Sx, B, E)
+                """
+                embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, E*500)
+                teacher_embedding_x = teacher_embedding_x.permute(1, 2, 0) # (Sx, B, E) -> (B, E, Sx)
+                teacher_embedding_x = self.model.to500(teacher_embedding_x) # (B, E, 500)
+                teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, E*500)
                 assert embedding_x.shape == teacher_embedding_x.shape , "embedding_x and teacher_embedding_x must have same shape but got {} and {}".format(embedding_x.shape, teacher_embedding_x.shape)
 
                 y = torch.ones(imgs.shape[0]).cuda()
                 loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
-                # loss_embedding = self.loss_cos(embeding_x, teacher_embedding_x)
                 loss = loss + self.r_embedding * loss_embedding
                 self.log("train/loss_embedding", loss_embedding)
             
@@ -178,17 +174,6 @@ class LitCnn(LightningModule):
         val_cer = self.val_cer(preds, targets)
         self.log("val/cer", val_cer)
         """
-        """
-        imgs, targets = batch
-        logits = self.model(imgs, targets[:, :-1])
-        #loss = self.loss_fn(logits, targets[:, 1:])
-        
-        targets = F.pad(targets, pad=(0, 500 - targets.shape[1], 0, 0))
-        loss = self.loss_fn(logits, targets)
-        
-        self.log("train/loss", loss)
-        return loss
-        """
         imgs, targets = batch
         embedding_x , logits = self.model.cnn_forward(imgs) # (500 ,B ,E) , ()
         targets = F.pad(targets, pad=(0, 500 - targets.shape[1], 0, 0))
@@ -204,28 +189,25 @@ class LitCnn(LightningModule):
 
             if self.loss == "soft":
                 # soft target loss
-                # print("student logits shape : ", logits.shape)
-                # print("teacher logits shape : ", teacher_logits.shape)
                 Sy = teacher_logits.shape[2]
-                # print("Sy : ", Sy)
-                # print("student logits shape : ", logits[:,:,:Sy].shape)
-                # print("teacher logits shape : ", teacher_logits.shape)
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,:,:Sy]/self.temperature, dim=-1), F.softmax(teacher_logits/self.temperature, dim=-1))
                 loss = loss * self.r_target + self.r_soft * loss_soft
                 self.log("val/loss_soft", loss_soft)
-
+            
             if self.embedding:
-                # embedding loss
-                embedding_x = embedding_x.permute(1, 0, 2) # (B, Sx, E)
-                embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
-                teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
-                teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
-                # print(embedding_x.shape, teacher_embedding_x.shape)
+                 # embedding loss
+                """
+                embedding_x : (B, E, 500)
+                teacher_embedding_x : (Sx, B, E)
+                """
+                embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, E*500)
+                teacher_embedding_x = teacher_embedding_x.permute(1, 2, 0) # (Sx, B, E) -> (B, E, Sx)
+                teacher_embedding_x = self.model.to500(teacher_embedding_x) # (B, E, 500)
+                teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, E*500)
                 assert embedding_x.shape == teacher_embedding_x.shape , "embedding_x and teacher_embedding_x must have same shape but got {} and {}".format(embedding_x.shape, teacher_embedding_x.shape)
 
                 y = torch.ones(imgs.shape[0]).cuda()
                 loss_embedding = self.loss_cos(embedding_x.cuda(), teacher_embedding_x.cuda(), y)
-                # loss_embedding = self.loss_cos(embeding_x, teacher_embedding_x)
                 loss = loss + self.r_embedding * loss_embedding
                 self.log("val/loss_embedding", loss_embedding)
 
