@@ -46,16 +46,16 @@ class Cnn(nn.Module):
         # Decoder
         self.embedding = nn.Embedding(num_classes, self.d_model)
         self.y_mask = generate_square_subsequent_mask(self.max_output_len)
-        self.word_positional_encoder = PositionalEncoding1D(self.d_model, max_len=self.max_output_len)
-        transformer_decoder_layer = nn.TransformerDecoderLayer(self.d_model, nhead, dim_feedforward, dropout)
-        self.transformer_decoder = nn.TransformerDecoder(transformer_decoder_layer, num_decoder_layers)
+        # self.word_positional_encoder = PositionalEncoding1D(self.d_model, max_len=self.max_output_len)
+        # transformer_decoder_layer = nn.TransformerDecoderLayer(self.d_model, nhead, dim_feedforward, dropout)
+        # self.transformer_decoder = nn.TransformerDecoder(transformer_decoder_layer, num_decoder_layers)
         
         self.fc = nn.Linear(self.d_model*2, num_classes)
         self.gap = nn.AdaptiveAvgPool1d(1)
         
-        self.multiattn = nn.MultiheadAttention(self.d_model, 1)
-        self.gru = nn.GRU(self.d_model*2, self.d_model*2, 1)
-        self.rnn = nn.RNN(self.d_model*2, self.d_model*2, 1)
+        # self.multiattn = nn.MultiheadAttention(self.d_model, 1)
+        # self.gru = nn.GRU(self.d_model*2, self.d_model*2, 1)
+        # self.rnn = nn.RNN(self.d_model*2, self.d_model*2, 1)
         self.toclass = nn.Linear(self.d_model, num_classes)
         self.to500 = nn.AdaptiveAvgPool1d(500)
         self.softmax = nn.Softmax(dim=2)        
@@ -114,6 +114,35 @@ class Cnn(nn.Module):
         
         return output  
 
+
+    def cnn_forward(self ,x: Tensor) -> Tensor:
+        """Encode inputs.
+
+        Args:
+            x: (B, C, _H, _W)
+
+        Returns:
+            embeding_x : (Sx, B, E); Sx = H * W
+            output: (B, num_classes, 500)
+        """
+        # Resnet expects 3 channels but training images are in gray scale
+        if x.shape[1] == 1:
+            x = x.repeat(1, 3, 1, 1)
+        # encoder
+        x = self.backbone(x)  # (B, RESNET_DIM, H, W); H = _H // 32, W = _W // 32
+        x = self.bottleneck(x)  # (B, E, H, W)
+        x = self.image_positional_encoder(x)  # (B, E, H, W)
+        x = x.flatten(start_dim=2)  # (B, E, H * W)
+        embeding_x = x.permute(2,0,1) # (Sx, B, E); Sx = H * W
+
+        # decoder
+        x = self.to500(x)
+        x = x.permute(0, 2, 1) # (B,  500, E)
+        x = self.toclass(x) # (B, H * W, num of class)
+        x = self.softmax(x) # (B, H * W, num of class)
+        output = x.permute(0, 2, 1) # (B, num of class, 500)
+        #x = x.permute(2, 0, 1)  # (Sx, B, E); Sx = H * W
+        return embeding_x ,output
 
     def encode(self, x: Tensor) -> Tensor:
         """Encode inputs.
