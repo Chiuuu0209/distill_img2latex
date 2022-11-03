@@ -8,9 +8,9 @@ from pytorch_lightning import LightningModule
 
 
 from .img2latex.data.utils import Tokenizer
-from .img2latex.models import ResNetTransformer , ResNetTransformerLight
 from .img2latex.lit_models.metrics import CharacterErrorRate
 from .img2latex.lit_models import LitResNetTransformer
+from .student_model import ResNetTransformerLight
 
 class DistillModel(LightningModule):
     def __init__(
