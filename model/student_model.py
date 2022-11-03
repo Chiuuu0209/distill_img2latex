@@ -342,7 +342,6 @@ class Cnn(nn.Module):
         """
         y = y.permute(1, 0)  # (Sy, B)
         y = self.embedding(y) * math.sqrt(self.d_model)  # (Sy, B, E)
-        Sy = y.shape[0]
         encoded_x = encoded_x.permute(1,2,0)
         encoded_x = self.gap(encoded_x)
         encoded_x = encoded_x.permute(2,0,1)
@@ -363,13 +362,8 @@ class Cnn(nn.Module):
         S = self.max_output_len
         S = 500
 
-        encoded_x = self.encode(x)  # (Sx, B, E)
-
         output_indices = torch.full((B, S), self.pad_index).type_as(x).long()
         output_indices[:, 0] = self.sos_index
-        has_ended = torch.full((B,), False)
-        h_0 = torch.zeros(1,B,self.d_model)
-        o_0 = torch.zeros(1,B,self.d_model)
         y=0
         
         output = self.forward(x,y)
