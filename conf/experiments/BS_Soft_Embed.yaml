@@ -5,7 +5,7 @@ trainer:
   overfit_batches: 0.0
   check_val_every_n_epoch: 10
   fast_dev_run: false
-  max_epochs: 100
+  max_epochs: 50
   min_epochs: 1
   num_sanity_val_steps: 0
   auto_lr_find: false
@@ -28,7 +28,7 @@ data:
   batch_size: 8
   num_workers: 4
   pin_memory: false
-  BS: False             # IF use beamsearch dataset
+  BS: True              # IF use beamsearch dataset
 
 lit_model:
   # Optimizer
@@ -45,17 +45,18 @@ lit_model:
   num_decoder_layers: 3
   max_output_len: 500
   # pretrained weight
-  teacher: False        # IF use teacher model: True for distill train and False for raw train
+  teacher: True
   pretrained_weight :   # your pretrained_weight
   # loss
   loss: "soft"          # "soft" or "hard"
-  embedding: False      # True or False
+  embedding: True      # True or False
   temperature: 5        # knowledge distillation temperature -> recommanded 3~20
   # ratio of different loss
-  r_target : 1.0
-  r_soft : 0.0
-  r_hard : 0.0
-  r_embedding : 0.0
+  r_target : 0.33
+  r_soft : 0.33
+  r_hard : 0.33
+  r_embedding : 0.33
 logger:
   project: "Distill-im2latex"
-  save_dir : # your save path
+  save_dir : # your save 
+  id: "BS_Soft_Embed"
