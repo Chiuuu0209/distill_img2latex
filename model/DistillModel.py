@@ -109,25 +109,6 @@ class DistillModel(LightningModule):
         self.test_cer = CharacterErrorRate(self.tokenizer.ignore_indices)
 
     def training_step(self, batch, batch_idx):
-        """
-        ResNetTransformer forward
-        
-        Args:
-            x: (B, _E, _H, _W)
-            y: (B, Sy) with elements in (0, num_classes - 1)
-
-        Returns:
-            (B, num_classes, Sy) logits
-
-        encoded_x = self.encode(x)  # (Sx, B, E)
-        output = self.decode(y, encoded_x)  # (Sy, B, num_classes)
-        output = output.permute(1, 2, 0)  # (B, num_classes, Sy)
-        """
-        """
-        imgs, targets = batch
-        logits = self.model(imgs, targets[:, :-1])
-        loss = self.loss_ce(logits, targets[:, 1:])
-        """
         imgs, targets = batch
 
         # train_model 
@@ -149,9 +130,6 @@ class DistillModel(LightningModule):
             y: (B, Sy) with elements in (0, num_classes - 1)
             logits: (B, num_classes, Sy)
             """
-            # loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            # self.log("train/loss_target", loss_target)
-            
             if self.loss == "soft":
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
                 self.log("train/loss_soft", loss_soft)
@@ -172,7 +150,6 @@ class DistillModel(LightningModule):
                 embedding_x = embedding_x.reshape(embedding_x.shape[0],-1) # (B, Sx*E)
                 teacher_embedding_x = teacher_embedding_x.permute(1, 0, 2) # (B, Sx, E)
                 teacher_embedding_x = teacher_embedding_x.reshape(teacher_embedding_x.shape[0],-1) # (B, Sx*E)
-                # print(embedding_x.shape, teacher_embedding_x.shape)
                 assert embedding_x.shape == teacher_embedding_x.shape , "embedding_x and teacher_embedding_x must have same shape but got {} and {}".format(embedding_x.shape, teacher_embedding_x.shape)
 
                 y = torch.ones(imgs.shape[0]).cuda()
@@ -187,18 +164,6 @@ class DistillModel(LightningModule):
         
 
     def validation_step(self, batch, batch_idx):
-        """
-        imgs, targets = batch
-        logits = self.model(imgs, targets[:, :-1])
-        loss = self.loss_ce(logits, targets[:, 1:])
-        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True)
-
-        preds = self.model.predict(imgs)
-        val_cer = self.val_cer(preds, targets)
-        self.log("val/cer", val_cer)
-
-        """
-        
         imgs, targets = batch
         # model output 
         embedding_x = self.model.encode(imgs) # (Sx, B, E)
@@ -215,14 +180,10 @@ class DistillModel(LightningModule):
                 teacher_embedding_x = self.teacher_model.encode(imgs) # (Sx, B, E)
                 teacher_logits = self.teacher_model.decode(targets[:, :-1],teacher_embedding_x) # (Sy, B, num_classes)
                 teacher_logits = teacher_logits.permute(1, 2, 0) # (B, num_classes, Sy)
-            # # loss with target
-            # loss_target = self.loss_ce(logits, targets[:, 1:]) # (B, num_classes, Sy)
-            # self.log("val/loss_target", loss_target, on_step=False, on_epoch=True, prog_bar=True)
             
             if self.loss == "soft":
                 loss_soft = self.loss_kl(F.log_softmax(logits[:,1:,:]/self.temperature, dim=1), F.softmax(teacher_logits[:,1:,:]/self.temperature, dim=1))
                 self.log("val/loss_soft", loss_soft)
-                # loss = loss_target + loss_soft
                 loss = self.r_target * loss + self.r_soft * loss_soft
             elif self.loss == "hard":
                 logits = logits.reshape(logits.shape[0],-1) # (B, num_classes*Sy)
@@ -258,13 +219,6 @@ class DistillModel(LightningModule):
 
 
     def test_step(self, batch, batch_idx):
-        """
-        imgs, targets = batch
-        preds = self.model.predict(imgs)
-        test_cer = self.test_cer(preds, targets)
-        self.log("test/cer", test_cer)
-        """
-        
         imgs, targets = batch
         preds = self.model.predict(imgs)
         test_cer = self.test_cer(preds, targets)

@@ -44,16 +44,10 @@ class Cnn(nn.Module):
         # Decoder
         self.embedding = nn.Embedding(num_classes, self.d_model)
         self.y_mask = generate_square_subsequent_mask(self.max_output_len)
-        # self.word_positional_encoder = PositionalEncoding1D(self.d_model, max_len=self.max_output_len)
-        # transformer_decoder_layer = nn.TransformerDecoderLayer(self.d_model, nhead, dim_feedforward, dropout)
-        # self.transformer_decoder = nn.TransformerDecoder(transformer_decoder_layer, num_decoder_layers)
         
         self.fc = nn.Linear(self.d_model*2, num_classes)
         self.gap = nn.AdaptiveAvgPool1d(1)
         
-        # self.multiattn = nn.MultiheadAttention(self.d_model, 1)
-        # self.gru = nn.GRU(self.d_model*2, self.d_model*2, 1)
-        # self.rnn = nn.RNN(self.d_model*2, self.d_model*2, 1)
         self.toclass = nn.Linear(self.d_model, num_classes)
         self.to500 = nn.AdaptiveAvgPool1d(500)
         self.softmax = nn.Softmax(dim=2)        
@@ -90,23 +84,6 @@ class Cnn(nn.Module):
         Returns:
             (B, num_classes, Sy) logits
         """
-        '''
-        #cnnrnn
-        encoded_x = self.encode(x)  # (Sx, B, E)
-        #output = self.attn_decode(y, encoded_x)  # (Sy, B, num_classes)
-        #output = output.permute(1, 2, 0)  # (B, num_classes, Sy)
-        h_0 = torch.zeros(1,B,self.d_model)
-        o_0 = torch.zeros(1,B,self.d_model)
-        logit = []
-        for t in range(self.max_output_len):
-            tgt = y[:, t:t+1]
-            # schedule sampling
-            # ont step decoding
-            logit,h_0,o_0 = self.step_decoding(tgt,encoded_x,h_0,o_0)
-            logits.append(logit)
-        output = torch.stack(logits, dim=0)  # [B, MAX_LEN, out_size]
-        output = output.permute(1, 2, 0) 
-        '''
         output = self.CNN2500(x)  # (B, H * W, num of class)
         output = output.permute(0, 2, 1)  # (B, num_classes, 500)
         
@@ -131,7 +108,6 @@ class Cnn(nn.Module):
         x = self.bottleneck(x)  # (B, E, H, W)
         x = self.image_positional_encoder(x)  # (B, E, H, W)
         x = x.flatten(start_dim=2)  # (B, E, Sx); Sx = H * W
-        # embeding_x = x.permute(2,0,1) # (Sx, B, E); Sx = H * W
 
         # decoder
         x = self.to500(x) # (B, E, 500)
@@ -140,7 +116,6 @@ class Cnn(nn.Module):
         x = self.toclass(x) # (B, H * W, num of class)
         x = self.softmax(x) # (B, H * W, num of class)
         output = x.permute(0, 2, 1) # (B, num of class, 500)
-        #x = x.permute(2, 0, 1)  # (Sx, B, E); Sx = H * W
         return embeding_x ,output
 
     def encode(self, x: Tensor) -> Tensor:
@@ -160,30 +135,7 @@ class Cnn(nn.Module):
         x = self.image_positional_encoder(x)  # (B, E, H, W)
         x = x.flatten(start_dim=2)  # (B, E, H * W)
         x = x.permute(2, 0, 1)  # (Sx, B, E); Sx = H * W
-        return x
-
-    def CNN2500(self, x: Tensor) -> Tensor:
-        """Encode inputs.
-
-        Args:
-            x: (B, C, _H, _W)
-
-        Returns:
-            (Sx, B, E)
-        """
-        # Resnet expects 3 channels but training images are in gray scale
-        if x.shape[1] == 1:
-            x = x.repeat(1, 3, 1, 1)
-        x = self.backbone(x)  # (B, RESNET_DIM, H, W); H = _H // 32, W = _W // 32
-        x = self.bottleneck(x)  # (B, E, H, W)
-        x = self.image_positional_encoder(x)  # (B, E, H, W)
-        x = x.flatten(start_dim=2)  # (B, E, H * W)
-        x = self.to500(x)# (B,  E, 500)
-        x = x.permute(0, 2, 1) # (B,  500, E)
-        x = self.toclass(x) # (B, H * W, num of class)
-        x = self.softmax(x)
-        #x = x.permute(2, 0, 1)  # (Sx, B, E); Sx = H * W
-        return x    
+        return x  
     
 
     def decode(self, y: Tensor, encoded_x: Tensor) -> Tensor:
@@ -198,19 +150,10 @@ class Cnn(nn.Module):
         """
         y = y.permute(1, 0)  # (Sy, B)
         y = self.embedding(y) * math.sqrt(self.d_model)  # (Sy, B, E)
-        #y = self.word_positional_encoder(y)  # (Sy, B, E)
         Sy = y.shape[0]
-        #print(encoded_x.shape)
-        #print(y.shape)
-        #print(self.d_model)
         encoded_x = encoded_x.permute(1,2,0)
-        #print(encoded_x.shape)
         encoded_x = self.gap(encoded_x)
-        #print(encoded_x.shape)
         encoded_x = encoded_x.permute(2,0,1)
-        #print(encoded_x.shape)
-        #y_mask = self.y_mask[:Sy, :Sy].type_as(encoded_x)  # (Sy, Sy)
-        #output = self.transformer_decoder(y, encoded_x, y_mask)  # (Sy, B, E)
         output,hidden = self.gru(y,encoded_x)
         output = self.fc(output)  # (Sy, B, num_classes)
         return output, hidden
@@ -238,13 +181,7 @@ class Cnn(nn.Module):
         y=0
         
         output = self.forward(x,y)
-        #print(output.shape)
-        #print(self.max_output_len-2)
-        # for i in range(self.max_output_len-2):
         for i in range(S):
-            #print(output[:,:,i].shape)
-            #print(output[:,:,i].shape)
-            # tmp = torch.argmax(output[:,:,i:i+1])  # (Sy, B)
             tmp = torch.argmax(output[:,:,i] , dim=-1)  # (Sy, B)
             output_indices[:,i] = tmp  # Set the last output token
             
