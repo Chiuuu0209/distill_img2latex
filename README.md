@@ -67,6 +67,8 @@ pip install -r requirements.txt
 ```bash
 python run.py trainer.gpus=1 data.batch_size=8
 ```
+- Training Result will be generated in `outputs` folder
+- Your model weight will be generated in where you set in config `logger.save_dir` 
 - Configurations can be modified in `conf/config.yaml` or in command line. See [Hydra's documentation](https://hydra.cc/docs/intro/) to learn more.
 
 - Note that the default configuration is `conf/config.yaml`. To use another configuration, please specify which config file you chose in `run.py`:
@@ -140,7 +142,7 @@ lit_model:
   r_embedding : 0.0
 logger:
   project: "Distill-im2latex"
-  save_dir : # your save path
+  save_dir : # where you save your model
 ```
 
 ## Evaluation
