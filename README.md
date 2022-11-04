@@ -3,21 +3,6 @@ Knowledge Distillation of image-to-latex models
 
 Inspire by [kingyiusuen/image-to-latex](https://github.com/kingyiusuen/image-to-latex)
 
-
-
-# Data
-- available in last repository
-- put all data in `data` folder
-## Teacher model weight
-- available in last repository training result
-- put all weight in `weights` folder
-## Preprocessing
-- Produce Beamsearch predictions
-```bash
-python Beamsearch.py [teacher_model_path]
-```
-- Then `new_BS_data.lst` will be generated in `data` folder
-
 # Architecture
 ```
 distill_img2latex
@@ -49,6 +34,21 @@ distill_img2latex
 ├── requirements.txt                        
 └── README.md
 ```
+
+# Setup
+## Data
+- available in last repository
+- put all data in `data` folder
+## Teacher model weight
+- available in last repository training result
+- put all weight in `weights` folder
+## Preprocessing
+- Produce Beamsearch predictions
+```bash
+python Beamsearch.py [teacher_model_path]
+```
+- Then `new_BS_data.lst` will be generated in `data` folder
+
 
 # How To Use
 ## Requirements and Setup
