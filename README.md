@@ -6,7 +6,17 @@ Inspire by [kingyiusuen/image-to-latex](https://github.com/kingyiusuen/image-to-
 
 
 # Data
-- available in [url](someurl)
+- available in last repository
+- put all data in `data` folder
+## Teacher model weight
+- available in last repository training result
+- put all weight in `weights` folder
+## Preprocessing
+- Produce Beamsearch predictions
+```bash
+python Beamsearch.py [teacher_model_path]
+```
+- Then `new_BS_data.lst` will be generated in `data` folder
 
 # Architecture
 ```
@@ -34,6 +44,8 @@ distill_img2latex
 │   ├── weights                             # weights folder
 │       ├── model.ckpt                      # pretrained weights
 ├── run.py                                  # main file
+├── BLEU.py                                 # calculate BLEU score
+├── Beamsearch.py                           # Produce beamsearch result dataset
 ├── requirements.txt                        
 └── README.md
 ```
@@ -63,7 +75,8 @@ python run.py trainer.gpus=1 data.batch_size=8
 # specify your configuration path and name here
 ```
 
-- We provide a config template in `conf/__config.yaml` for you to start with. You can also use `conf/__config.yaml` as a reference to create your own config file.And we have all ours experiments' config in `conf/experiments` folder.Please specify `pretrained_weight` and `save_dir` and replace default configuration if your want to reproduce our experiments.
+- We provide a config template in `conf/__config.yaml` for you to start with. You can also use `conf/__config.yaml` as a reference to create your own config file.
+- And we have all ours experiments' config in `conf/experiments` folder.Please specify `pretrained_weight` and `save_dir` and replace default configuration if your want to reproduce our experiments.
 
 ## Config setting
 ```yaml
@@ -128,4 +141,10 @@ lit_model:
 logger:
   project: "Distill-im2latex"
   save_dir : # your save path
+```
+
+## Evaluation
+- BLEU score
+```bash
+python BLEU.py [your_prediction.txt_path]
 ```
